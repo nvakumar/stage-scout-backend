@@ -1,41 +1,28 @@
-import multer from 'multer'; // Import multer
-import { avatarStorage, resumeStorage } from '../config/cloudinary.js'; // Import new storage configs
 import User from '../models/userModel.js';
 import Post from '../models/postModel.js';
-
-// Set up multer for avatar upload
-const uploadAvatar = multer({ storage: avatarStorage });
-
-// Set up multer for resume upload
-const uploadResume = multer({ storage: resumeStorage });
-
 
 // @desc    Get user profile by ID
 // @route   GET /api/users/:id
 // @access  Public
 const getUserProfile = async (req, res) => {
   try {
-    // Find the user by their ID from the URL parameter
-    // We exclude the password for security
-    const user = await User.findById(req.params.id).select('-password');
+    // Fixed: Explicitly include fields, including 'location'
+    const user = await User.findById(req.params.id).select('fullName email role bio skills profilePictureUrl resumeUrl followers following location'); 
 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Find all posts created by this user
     const posts = await Post.find({ user: req.params.id })
       .sort({ createdAt: -1 })
-      .populate('user', 'fullName role avatar'); // Populate user details for each post
+      .populate('user', 'fullName role avatar'); 
 
-    // Send back the user's profile information and their posts
     res.status(200).json({
       user,
       posts,
     });
 
   } catch (error) {
-    // Handle cases where the provided ID is not a valid MongoDB ObjectId
     if (error.kind === 'ObjectId') {
         return res.status(404).json({ message: 'User not found' });
     }
@@ -44,31 +31,46 @@ const getUserProfile = async (req, res) => {
 };
 
 // @desc    Search for users by name or role
-// @route   GET /api/users/search?q=query
+// @route   GET /api/users/search?q=query&role=roleFilter&location=locationFilter
 // @access  Private
 const searchUsers = async (req, res) => {
-    // Get the search query from the URL, e.g., ?q=John
     const query = req.query.q;
+    const roleFilter = req.query.role;
+    const locationFilter = req.query.location;
 
-    if (!query) {
-        return res.status(400).json({ message: 'Search query is required' });
+    // Allow search if query is empty BUT any filter is present and not 'All Roles'
+    if (!query && (!roleFilter || roleFilter === 'All Roles') && !locationFilter) { 
+        return res.status(400).json({ message: 'Search query or specific filters are required' });
     }
 
     try {
-        // Create a case-insensitive regular expression for searching
-        const searchQuery = new RegExp(query, 'i');
+        let findQuery = {};
 
-        // Find users where either the fullName or the role matches the search query
-        const users = await User.find({
-            $or: [
+        if (query) {
+            const searchQuery = new RegExp(query, 'i');
+            findQuery.$or = [
                 { fullName: searchQuery },
                 { role: searchQuery }
-            ]
-        }).select('-password'); // Exclude passwords from the result
+            ];
+        }
+
+        if (roleFilter && roleFilter !== 'All Roles') {
+            findQuery.role = roleFilter;
+        }
+
+        if (locationFilter) {
+            findQuery.location = new RegExp(locationFilter, 'i');
+        }
+
+        // Fix: Explicitly include fields for projection, do not mix exclusion/inclusion
+        const users = await User.find(findQuery)
+                                .select('fullName role profilePictureUrl location') // Include 'location' here
+                                .sort({ fullName: 1 }); 
 
         res.status(200).json(users);
 
     } catch (error) {
+        console.error("Error searching users:", error);
         res.status(500).json({ message: 'Server Error', error: error.message });
     }
 };
@@ -78,33 +80,27 @@ const searchUsers = async (req, res) => {
 // @access  Private
 const followUser = async (req, res) => {
   try {
-    const userToFollowId = req.params.id; // The ID of the user to be followed
-    const currentUserId = req.user._id; // The ID of the currently logged-in user
+    const userToFollowId = req.params.id;
+    const currentUserId = req.user._id;
 
-    // Ensure user cannot follow themselves
     if (userToFollowId.toString() === currentUserId.toString()) {
       return res.status(400).json({ message: 'You cannot follow yourself' });
     }
 
-    // Find the user to be followed
     const userToFollow = await User.findById(userToFollowId);
     if (!userToFollow) {
       return res.status(404).json({ message: 'User to follow not found' });
     }
 
-    // Find the current user
     const currentUser = await User.findById(currentUserId);
 
-    // Check if already following
     if (currentUser.following.includes(userToFollowId)) {
       return res.status(400).json({ message: 'You are already following this user' });
     }
 
-    // Add to following list of current user
     currentUser.following.push(userToFollowId);
     await currentUser.save();
 
-    // Add to followers list of the user being followed
     userToFollow.followers.push(currentUserId);
     await userToFollow.save();
 
@@ -121,30 +117,25 @@ const followUser = async (req, res) => {
 // @access  Private
 const unfollowUser = async (req, res) => {
   try {
-    const userToUnfollowId = req.params.id; // The ID of the user to be unfollowed
-    const currentUserId = req.user._id; // The ID of the currently logged-in user
+    const userToUnfollowId = req.params.id;
+    const currentUserId = req.user._id;
 
-    // Find the user to be unfollowed
     const userToUnfollow = await User.findById(userToUnfollowId);
     if (!userToUnfollow) {
       return res.status(404).json({ message: 'User to unfollow not found' });
     }
 
-    // Find the current user
     const currentUser = await User.findById(currentUserId);
 
-    // Check if not following
     if (!currentUser.following.includes(userToUnfollowId)) {
       return res.status(400).json({ message: 'You are not following this user' });
     }
 
-    // Remove from following list of current user
     currentUser.following = currentUser.following.filter(
       (id) => id.toString() !== userToUnfollowId.toString()
     );
     await currentUser.save();
 
-    // Remove from followers list of the user being unfollowed
     userToUnfollow.followers = userToUnfollow.followers.filter(
       (id) => id.toString() !== currentUserId.toString()
     );
@@ -158,13 +149,13 @@ const unfollowUser = async (req, res) => {
   }
 };
 
-// @desc    Update user profile (bio, skills, profilePictureUrl, resumeUrl)
+// @desc    Update user profile (bio, skills, profilePictureUrl, resumeUrl, location)
 // @route   PUT /api/users/me
 // @access  Private
 const updateUserProfile = async (req, res) => {
   try {
-    const userId = req.user._id; // Get the logged-in user's ID from the protect middleware
-    const { bio, skills, profilePictureUrl, resumeUrl } = req.body; // Added resumeUrl
+    const userId = req.user._id;
+    const { bio, skills, profilePictureUrl, resumeUrl, location } = req.body; // Include 'location'
 
     const user = await User.findById(userId);
 
@@ -172,11 +163,11 @@ const updateUserProfile = async (req, res) => {
       user.bio = bio !== undefined ? bio : user.bio;
       user.skills = skills !== undefined ? skills : user.skills;
       user.profilePictureUrl = profilePictureUrl !== undefined ? profilePictureUrl : user.profilePictureUrl;
-      user.resumeUrl = resumeUrl !== undefined ? resumeUrl : user.resumeUrl; // Update resumeUrl
+      user.resumeUrl = resumeUrl !== undefined ? resumeUrl : user.resumeUrl;
+      user.location = location !== undefined ? location : user.location; // Update 'location'
 
       const updatedUser = await user.save();
 
-      // Return the updated user data (excluding password)
       res.status(200).json({
         _id: updatedUser._id,
         fullName: updatedUser.fullName,
@@ -185,9 +176,10 @@ const updateUserProfile = async (req, res) => {
         bio: updatedUser.bio,
         skills: updatedUser.skills,
         profilePictureUrl: updatedUser.profilePictureUrl,
-        resumeUrl: updatedUser.resumeUrl, // Include resumeUrl in response
+        resumeUrl: updatedUser.resumeUrl,
         followers: updatedUser.followers,
         following: updatedUser.following,
+        location: updatedUser.location, // Include 'location' in response
       });
     } else {
       res.status(404).json({ message: 'User not found' });
@@ -211,7 +203,7 @@ const uploadUserAvatar = async (req, res) => {
     const user = await User.findById(userId);
 
     if (user) {
-      user.profilePictureUrl = req.file.path; // Cloudinary URL
+      user.profilePictureUrl = req.file.path;
       await user.save();
       res.status(200).json({ message: 'Avatar uploaded successfully', profilePictureUrl: user.profilePictureUrl });
     } else {
@@ -236,7 +228,7 @@ const uploadUserResume = async (req, res) => {
     const user = await User.findById(userId);
 
     if (user) {
-      user.resumeUrl = req.file.path; // Cloudinary URL
+      user.resumeUrl = req.file.path;
       await user.save();
       res.status(200).json({ message: 'Resume uploaded successfully', resumeUrl: user.resumeUrl });
     } else {
@@ -255,6 +247,6 @@ export {
   followUser, 
   unfollowUser, 
   updateUserProfile,
-  uploadUserAvatar, // Export new upload functions
-  uploadUserResume  // Export new upload functions
+  uploadUserAvatar, 
+  uploadUserResume  
 };
