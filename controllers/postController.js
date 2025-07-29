@@ -123,6 +123,36 @@ const likePost = async (req, res) => {
   }
 };
 
+// @desc    React to a post with an emoji
+// @route   POST /api/posts/:id/react
+// @access  Private
+const reactToPost = async (req, res) => {
+    const { emoji } = req.body;
+    if (!emoji) {
+        return res.status(400).json({ message: 'Emoji is required.' });
+    }
+    try {
+        const post = await Post.findById(req.params.id);
+        if (!post) return res.status(404).json({ message: 'Post not found' });
+
+        const existingReactionIndex = post.reactions.findIndex(
+            reaction => reaction.user.toString() === req.user._id.toString()
+        );
+
+        if (existingReactionIndex > -1) {
+            post.reactions[existingReactionIndex].emoji = emoji;
+        } else {
+            post.reactions.push({ user: req.user._id, emoji });
+        }
+        
+        await post.save();
+        const populatedPost = await Post.findById(post._id).populate('reactions.user', 'fullName');
+        res.status(200).json(populatedPost.reactions);
+    } catch (error) {
+        res.status(500).json({ message: 'Server Error', error: error.message });
+    }
+};
+
 // @desc    Add a comment to a post
 // @route   POST /api/posts/:id/comment
 // @access  Private
@@ -220,14 +250,12 @@ const updatePost = async (req, res) => {
   }
 };
 
-// Note: reactToPost was removed as it was not used in the frontend and simplifies the controller.
-// If you need it, you can add it back from your original code.
-
 export { 
   createPost, 
   getPosts, 
   getGroupPosts, 
   likePost, 
+  reactToPost,
   addComment, 
   deleteComment, 
   deletePost, 
