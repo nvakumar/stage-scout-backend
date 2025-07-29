@@ -22,10 +22,8 @@ connectDB();
 const app = express();
 
 // --- Middleware ---
-
-// Get frontend URL from environment variables, with a fallback for development
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
-console.log(`CORS allowing connections from: ${FRONTEND_URL}`); // Log the allowed origin
+console.log(`CORS allowing connections from: ${FRONTEND_URL}`);
 
 // Configure CORS for Express routes
 app.use(cors({
@@ -81,13 +79,11 @@ const getUser = (userId) => {
 io.on("connection", (socket) => {
   console.log(`🔌 User connected: ${socket.id}`);
 
-  // Event: A user comes online
   socket.on("addUser", (userId) => {
     addUser(userId, socket.id);
     io.emit("getUsers", onlineUsers);
   });
 
-  // Event: A user sends a message
   socket.on("sendMessage", ({ senderId, receiverId, text }) => {
     const receiver = getUser(receiverId);
     if (receiver) {
@@ -98,7 +94,6 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Event: A user disconnects
   socket.on("disconnect", () => {
     console.log(`🔌 User disconnected: ${socket.id}`);
     removeUser(socket.id);
@@ -107,6 +102,7 @@ io.on("connection", (socket) => {
 });
 
 // --- Error Handling for Not Found Routes ---
+// This will catch any request that doesn't match a route above
 app.use((req, res, next) => {
     res.status(404).json({ message: "API route not found" });
 });
