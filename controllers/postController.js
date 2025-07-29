@@ -7,44 +7,59 @@ import Group from '../models/groupModel.js';
 // Set up multer with the Cloudinary storage engine for posts
 const upload = multer({ storage: postStorage });
 
+// @desc    Upload a media file for a post
+// @route   POST /api/posts/upload
+// @access  Private
+const uploadPostMedia = (req, res) => {
+  // This function runs after the 'upload.single('file')' middleware.
+  // The middleware handles the upload to Cloudinary.
+  if (!req.file) {
+    return res.status(400).json({ message: 'No file uploaded.' });
+  }
+
+  // If upload is successful, Cloudinary provides the path (URL) and mimetype.
+  res.status(201).json({
+    message: 'File uploaded successfully.',
+    mediaUrl: req.file.path,
+    mediaType: req.file.mimetype.startsWith('video') ? 'Video' : 'Photo',
+  });
+};
+
 
 // @desc    Create a new post
 // @route   POST /api/posts
 // @access  Private
 const createPost = async (req, res) => {
-  const { title, description, groupId } = req.body;
+  const { title, description, groupId, mediaUrl, mediaType } = req.body;
 
   if (!title) {
-    return res.status(400).json({ message: 'Title or text content is required.' });
-  }
-
-  if (groupId) {
-    const group = await Group.findById(groupId);
-    if (!group || !group.members.includes(req.user._id)) {
-      return res.status(403).json({ message: 'You are not a member of this group.' });
-    }
+    return res.status(400).json({ message: 'Title content is required.' });
   }
 
   try {
+    if (groupId) {
+      const group = await Group.findById(groupId);
+      if (!group || !group.members.includes(req.user._id)) {
+        return res.status(403).json({ message: 'You are not a member of this group.' });
+      }
+    }
+
     const newPostData = {
       user: req.user._id,
       title,
       description,
+      mediaUrl,
+      mediaType,
       ...(groupId && { group: groupId }),
     };
 
-    if (req.file) {
-      newPostData.mediaUrl = req.file.path;
-      newPostData.mediaType = req.file.mimetype.startsWith('video') ? 'Video' : 'Photo';
-    }
-
     const newPost = new Post(newPostData);
     const createdPost = await newPost.save();
-    // Ensure avatar is populated here when a new post is created
-    const populatedPost = await Post.findById(createdPost._id).populate('user', 'fullName role avatar');
+    const populatedPost = await Post.findById(createdPost._id).populate('user', 'fullName role avatar profilePictureUrl');
     
     res.status(201).json(populatedPost);
   } catch (error) {
+    console.error("Error creating post:", error);
     res.status(500).json({ message: 'Server Error', error: error.message });
   }
 };
@@ -56,10 +71,11 @@ const getPosts = async (req, res) => {
   try {
     const posts = await Post.find({ group: { $exists: false } })
       .sort({ createdAt: -1 })
-      .populate('user', 'fullName role avatar') // 👈 Ensure avatar is populated here
-      .populate('comments.user', 'fullName avatar');
+      .populate('user', 'fullName role avatar profilePictureUrl')
+      .populate('comments.user', 'fullName avatar profilePictureUrl');
     res.status(200).json(posts);
   } catch (error) {
+    console.error("Error fetching posts:", error);
     res.status(500).json({ message: 'Server Error', error: error.message });
   }
 };
@@ -78,10 +94,11 @@ const getGroupPosts = async (req, res) => {
         }
         const posts = await Post.find({ group: req.params.id })
             .sort({ createdAt: -1 })
-            .populate('user', 'fullName role avatar') // Ensure avatar is populated here
-            .populate('comments.user', 'fullName avatar');
+            .populate('user', 'fullName role avatar profilePictureUrl')
+            .populate('comments.user', 'fullName avatar profilePictureUrl');
         res.status(200).json(posts);
     } catch (error) {
+        console.error("Error fetching group posts:", error);
         res.status(500).json({ message: 'Server Error', error: error.message });
     }
 };
@@ -101,42 +118,10 @@ const likePost = async (req, res) => {
     await post.save();
     res.status(200).json({ likes: post.likes });
   } catch (error) {
+    console.error("Error liking post:", error);
     res.status(500).json({ message: 'Server Error', error: error.message });
   }
 };
-
-// @desc    React to a post with an emoji
-// @route   POST /api/posts/:id/react
-// @access  Private
-const reactToPost = async (req, res) => {
-    const { emoji } = req.body;
-    if (!emoji) {
-        return res.status(400).json({ message: 'Emoji is required.' });
-    }
-    try {
-        const post = await Post.findById(req.params.id);
-        if (!post) return res.status(404).json({ message: 'Post not found' });
-
-        const existingReactionIndex = post.reactions.findIndex(
-            reaction => reaction.user.toString() === req.user._id.toString()
-        );
-
-        if (existingReactionIndex > -1) {
-            // If user has already reacted, update their emoji
-            post.reactions[existingReactionIndex].emoji = emoji;
-        } else {
-            // Otherwise, add a new reaction
-            post.reactions.push({ user: req.user._id, emoji });
-        }
-        
-        await post.save();
-        const populatedPost = await Post.findById(post._id).populate('reactions.user', 'fullName');
-        res.status(200).json(populatedPost.reactions);
-    } catch (error) {
-        res.status(500).json({ message: 'Server Error', error: error.message });
-    }
-};
-
 
 // @desc    Add a comment to a post
 // @route   POST /api/posts/:id/comment
@@ -148,9 +133,10 @@ const addComment = async (req, res) => {
     const newComment = { user: req.user._id, text: req.body.text };
     post.comments.push(newComment);
     await post.save();
-    const populatedPost = await Post.findById(post._id).populate('comments.user', 'fullName avatar');
+    const populatedPost = await Post.findById(post._id).populate('comments.user', 'fullName avatar profilePictureUrl');
     res.status(201).json(populatedPost.comments);
   } catch (error) {
+    console.error("Error adding comment:", error);
     res.status(500).json({ message: 'Server Error', error: error.message });
   }
 };
@@ -161,13 +147,10 @@ const addComment = async (req, res) => {
 const deleteComment = async (req, res) => {
   try {
     const { postId, commentId } = req.params;
-
     const post = await Post.findById(postId).populate('group', 'admin');
     if (!post) return res.status(404).json({ message: 'Post not found' });
-
     const comment = post.comments.id(commentId);
     if (!comment) return res.status(404).json({ message: 'Comment not found' });
-
     const isGroupAdmin = post.group && post.group.admin.toString() === req.user._id.toString();
     if (
       comment.user.toString() !== req.user._id.toString() &&
@@ -176,11 +159,11 @@ const deleteComment = async (req, res) => {
     ) {
       return res.status(401).json({ message: 'Not authorized to delete this comment' });
     }
-
     comment.deleteOne();
     await post.save();
     res.status(200).json({ message: 'Comment removed' });
   } catch (error) {
+    console.error("Error deleting comment:", error);
     res.status(500).json({ message: 'Server Error', error: error.message });
   }
 };
@@ -192,21 +175,16 @@ const deletePost = async (req, res) => {
   try {
     const postId = req.params.id;
     const post = await Post.findById(postId).populate('group', 'admin');
-
     if (!post) {
       return res.status(404).json({ message: 'Post not found' });
     }
-
     const isPostOwner = post.user.toString() === req.user._id.toString();
     const isGroupAdmin = post.group && post.group.admin.toString() === req.user._id.toString();
-
     if (!isPostOwner && !isGroupAdmin) {
       return res.status(401).json({ message: 'Not authorized to delete this post' });
     }
-
     await post.deleteOne();
     res.status(200).json({ message: 'Post removed successfully' });
-
   } catch (error) {
     console.error("Error deleting post:", error);
     res.status(500).json({ message: 'Server Error', error: error.message });
@@ -220,37 +198,30 @@ const updatePost = async (req, res) => {
   try {
     const postId = req.params.id;
     const { title, description, mediaUrl, mediaType } = req.body;
-
     const post = await Post.findById(postId).populate('group', 'admin');
-
     if (!post) {
       return res.status(404).json({ message: 'Post not found' });
     }
-
     const isPostOwner = post.user.toString() === req.user._id.toString();
     const isGroupAdmin = post.group && post.group.admin.toString() === req.user._id.toString();
-
     if (!isPostOwner && !isGroupAdmin) {
       return res.status(401).json({ message: 'Not authorized to update this post' });
     }
-
     post.title = title !== undefined ? title : post.title;
     post.description = description !== undefined ? description : post.description;
     post.mediaUrl = mediaUrl !== undefined ? mediaUrl : post.mediaUrl;
     post.mediaType = mediaType !== undefined ? mediaType : post.mediaType;
-
     const updatedPost = await post.save();
-
-    const populatedUpdatedPost = await Post.findById(updatedPost._id).populate('user', 'fullName role avatar');
-
+    const populatedUpdatedPost = await Post.findById(updatedPost._id).populate('user', 'fullName role avatar profilePictureUrl');
     res.status(200).json(populatedUpdatedPost);
-
   } catch (error) {
     console.error("Error updating post:", error);
     res.status(500).json({ message: 'Server Error', error: error.message });
   }
 };
 
+// Note: reactToPost was removed as it was not used in the frontend and simplifies the controller.
+// If you need it, you can add it back from your original code.
 
 export { 
   createPost, 
@@ -259,8 +230,8 @@ export {
   likePost, 
   addComment, 
   deleteComment, 
-  reactToPost, 
   deletePost, 
   updatePost, 
+  uploadPostMedia,
   upload 
 };
