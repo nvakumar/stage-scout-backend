@@ -1,12 +1,21 @@
+import multer from 'multer';
+import { avatarStorage, resumeStorage } from '../config/cloudinary.js';
 import User from '../models/userModel.js';
-import Post from '../models/postModel.js';
+import Post from '../models/postModel.js'; // Ensure Post model is imported
+
+// Set up multer for avatar upload
+const uploadAvatar = multer({ storage: avatarStorage });
+
+// Set up multer for resume upload
+const uploadResume = multer({ storage: resumeStorage });
+
 
 // @desc    Get user profile by ID
 // @route   GET /api/users/:id
 // @access  Public
 const getUserProfile = async (req, res) => {
   try {
-    // Fixed: Explicitly include fields, including 'location'
+    // Explicitly include all fields needed for profile display, including 'location'
     const user = await User.findById(req.params.id).select('fullName email role bio skills profilePictureUrl resumeUrl followers following location'); 
 
     if (!user) {
@@ -39,6 +48,7 @@ const searchUsers = async (req, res) => {
     const locationFilter = req.query.location;
 
     // Allow search if query is empty BUT any filter is present and not 'All Roles'
+    // This condition is crucial to allow filter-only searches.
     if (!query && (!roleFilter || roleFilter === 'All Roles') && !locationFilter) { 
         return res.status(400).json({ message: 'Search query or specific filters are required' });
     }
@@ -62,10 +72,10 @@ const searchUsers = async (req, res) => {
             findQuery.location = new RegExp(locationFilter, 'i');
         }
 
-        // Fix: Explicitly include fields for projection, do not mix exclusion/inclusion
+        // Explicitly include fields for projection, do not mix exclusion/inclusion
         const users = await User.find(findQuery)
                                 .select('fullName role profilePictureUrl location') // Include 'location' here
-                                .sort({ fullName: 1 }); 
+                                .sort({ fullName: 1 }); // Sort alphabetically by full name for basic ranking
 
         res.status(200).json(users);
 
