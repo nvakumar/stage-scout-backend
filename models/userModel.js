@@ -51,8 +51,11 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: 'https://placehold.co/150x150/1a202c/ffffff?text=Avatar' // Default avatar placeholder
     },
-    // New field for resume URL
     resumeUrl: {
+      type: String,
+      default: ''
+    },
+    location: { // 👈 Location field
       type: String,
       default: ''
     },
@@ -68,6 +71,13 @@ const userSchema = new mongoose.Schema(
         ref: 'User', // Reference to other User documents
       },
     ],
+    // Email verification fields
+    isVerified: {
+      type: Boolean,
+      default: false,
+    },
+    verificationToken: String,
+    verificationTokenExpires: Date,
   },
   {
     timestamps: true, // This automatically adds `createdAt` and `updatedAt` fields
