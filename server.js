@@ -1,6 +1,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
+import helmet from 'helmet'; // 👈 Import helmet for security
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 
@@ -11,7 +12,6 @@ import authRoutes from './routes/authRoutes.js';
 import postRoutes from './routes/postRoutes.js';
 import userRoutes from './routes/userRoutes.js';
 import castingCallRoutes from './routes/castingCallRoutes.js';
-// import notificationRoutes from './routes/notificationRoutes.js'; // This route is not defined in your project
 import groupRoutes from './routes/groupRoutes.js';
 import leaderboardRoutes from './routes/leaderboardRoutes.js';
 import messageRoutes from './routes/messageRoutes.js';
@@ -21,6 +21,8 @@ dotenv.config();
 connectDB();
 const app = express();
 
+// --- Middleware ---
+
 // Get frontend URL from environment variables, with a fallback for development
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 console.log(`CORS allowing connections from: ${FRONTEND_URL}`); // Log the allowed origin
@@ -28,9 +30,15 @@ console.log(`CORS allowing connections from: ${FRONTEND_URL}`); // Log the allow
 // Configure CORS for Express routes
 app.use(cors({
   origin: FRONTEND_URL,
-  methods: ["GET", "POST", "PUT", "DELETE"], // Ensure all necessary methods are allowed for Express
+  methods: ["GET", "POST", "PUT", "DELETE"],
   credentials: true
 }));
+
+// Set security-related HTTP headers
+app.use(helmet());
+app.use(helmet.crossOriginResourcePolicy({ policy: "cross-origin" }));
+
+// Middleware to parse JSON bodies
 app.use(express.json());
 
 // --- API Routes ---
@@ -38,20 +46,19 @@ app.use('/api/auth', authRoutes);
 app.use('/api/posts', postRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/casting-calls', castingCallRoutes);
-// app.use('/api/notifications', notificationRoutes); // This route is not defined in your project
 app.use('/api/groups', groupRoutes);
 app.use('/api/leaderboard', leaderboardRoutes);
 app.use('/api/messages', messageRoutes);
+
 
 // --- Socket.IO Integration ---
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: FRONTEND_URL, // Use the dynamic FRONTEND_URL
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"], // 👈 Allow all common HTTP methods for Socket.IO handshake
+    origin: FRONTEND_URL,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     credentials: true
   },
-  // Add transports for better compatibility, although default is usually fine
   transports: ['websocket', 'polling']
 });
 
@@ -77,14 +84,13 @@ io.on("connection", (socket) => {
   // Event: A user comes online
   socket.on("addUser", (userId) => {
     addUser(userId, socket.id);
-    io.emit("getUsers", onlineUsers); // Send the list of online users to everyone
+    io.emit("getUsers", onlineUsers);
   });
 
   // Event: A user sends a message
   socket.on("sendMessage", ({ senderId, receiverId, text }) => {
     const receiver = getUser(receiverId);
     if (receiver) {
-      // If the receiver is online, send the message directly to their socket
       io.to(receiver.socketId).emit("getMessage", {
         senderId,
         text,
@@ -98,6 +104,11 @@ io.on("connection", (socket) => {
     removeUser(socket.id);
     io.emit("getUsers", onlineUsers);
   });
+});
+
+// --- Error Handling for Not Found Routes ---
+app.use((req, res, next) => {
+    res.status(404).json({ message: "API route not found" });
 });
 
 
