@@ -1,22 +1,13 @@
-import multer from 'multer';
-import { avatarStorage, resumeStorage } from '../config/cloudinary.js';
 import User from '../models/userModel.js';
-import Post from '../models/postModel.js'; // Ensure Post model is imported
-
-// Set up multer for avatar upload
-const uploadAvatar = multer({ storage: avatarStorage });
-
-// Set up multer for resume upload
-const uploadResume = multer({ storage: resumeStorage });
-
+import Post from '../models/postModel.js';
 
 // @desc    Get user profile by ID
 // @route   GET /api/users/:id
 // @access  Public
 const getUserProfile = async (req, res) => {
   try {
-    // Explicitly include all fields needed for profile display, including 'location'
-    const user = await User.findById(req.params.id).select('fullName email role bio skills profilePictureUrl resumeUrl followers following location'); 
+    // Fixed: Explicitly include fields, including 'location'
+    const user = await User.findById(req.params.id).select('fullName email role bio skills profilePictureUrl resumeUrl followers following location coverPhotoUrl username'); 
 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
@@ -47,8 +38,6 @@ const searchUsers = async (req, res) => {
     const roleFilter = req.query.role;
     const locationFilter = req.query.location;
 
-    // Allow search if query is empty BUT any filter is present and not 'All Roles'
-    // This condition is crucial to allow filter-only searches.
     if (!query && (!roleFilter || roleFilter === 'All Roles') && !locationFilter) { 
         return res.status(400).json({ message: 'Search query or specific filters are required' });
     }
@@ -72,10 +61,9 @@ const searchUsers = async (req, res) => {
             findQuery.location = new RegExp(locationFilter, 'i');
         }
 
-        // Explicitly include fields for projection, do not mix exclusion/inclusion
         const users = await User.find(findQuery)
-                                .select('fullName role profilePictureUrl location') // Include 'location' here
-                                .sort({ fullName: 1 }); // Sort alphabetically by full name for basic ranking
+                                .select('fullName role profilePictureUrl location')
+                                .sort({ fullName: 1 }); 
 
         res.status(200).json(users);
 
@@ -159,38 +147,28 @@ const unfollowUser = async (req, res) => {
   }
 };
 
-// @desc    Update user profile (bio, skills, profilePictureUrl, resumeUrl, location)
+// @desc    Update user profile
 // @route   PUT /api/users/me
 // @access  Private
 const updateUserProfile = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { bio, skills, profilePictureUrl, resumeUrl, location } = req.body; // Include 'location'
+    const { fullName, username, bio, skills, profilePictureUrl, resumeUrl, location } = req.body;
 
     const user = await User.findById(userId);
 
     if (user) {
+      user.fullName = fullName !== undefined ? fullName : user.fullName;
+      user.username = username !== undefined ? username : user.username;
       user.bio = bio !== undefined ? bio : user.bio;
       user.skills = skills !== undefined ? skills : user.skills;
       user.profilePictureUrl = profilePictureUrl !== undefined ? profilePictureUrl : user.profilePictureUrl;
       user.resumeUrl = resumeUrl !== undefined ? resumeUrl : user.resumeUrl;
-      user.location = location !== undefined ? location : user.location; // Update 'location'
+      user.location = location !== undefined ? location : user.location;
 
       const updatedUser = await user.save();
 
-      res.status(200).json({
-        _id: updatedUser._id,
-        fullName: updatedUser.fullName,
-        email: updatedUser.email,
-        role: updatedUser.role,
-        bio: updatedUser.bio,
-        skills: updatedUser.skills,
-        profilePictureUrl: updatedUser.profilePictureUrl,
-        resumeUrl: updatedUser.resumeUrl,
-        followers: updatedUser.followers,
-        following: updatedUser.following,
-        location: updatedUser.location, // Include 'location' in response
-      });
+      res.status(200).json(updatedUser);
     } else {
       res.status(404).json({ message: 'User not found' });
     }
@@ -250,6 +228,32 @@ const uploadUserResume = async (req, res) => {
   }
 };
 
+// **👇 ADD THIS NEW FUNCTION 👇**
+// @desc    Upload user cover photo
+// @route   POST /api/users/upload/cover
+// @access  Private
+const uploadUserCoverPhoto = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded' });
+    }
+
+    const userId = req.user._id;
+    const user = await User.findById(userId);
+
+    if (user) {
+      user.coverPhotoUrl = req.file.path; // Get the URL from Cloudinary
+      await user.save();
+      res.status(200).json({ message: 'Cover photo uploaded successfully', coverPhotoUrl: user.coverPhotoUrl });
+    } else {
+      res.status(404).json({ message: 'User not found' });
+    }
+  } catch (error) {
+    console.error("Error uploading cover photo:", error);
+    res.status(500).json({ message: 'Server Error', error: error.message });
+  }
+};
+
 
 export { 
   getUserProfile, 
@@ -258,5 +262,6 @@ export {
   unfollowUser, 
   updateUserProfile,
   uploadUserAvatar, 
-  uploadUserResume  
+  uploadUserResume,
+  uploadUserCoverPhoto // 👈 Add this to your exports
 };
