@@ -1,3 +1,4 @@
+// src/config/cloudinary.js
 import { v2 as cloudinary } from 'cloudinary';
 import { CloudinaryStorage } from 'multer-storage-cloudinary';
 import 'dotenv/config';
@@ -49,15 +50,34 @@ const resumeStorage = new CloudinaryStorage({
 });
 
 // Configure multer-storage-cloudinary for group cover images
-const groupCoverStorage = new CloudinaryStorage({ // 👈 NEW STORAGE FOR GROUP COVERS
+const groupCoverStorage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
-    folder: 'StageScout/group_covers', // Dedicated folder for group covers
+    folder: 'StageScout/group_covers',
     allowed_formats: ['jpeg', 'png', 'jpg'],
     resource_type: 'image',
-    public_id: (req, file) => `group-cover-${req.params.id}`, // Use group ID for unique cover
-    overwrite: true, // Overwrite existing cover for the same group
+    public_id: (req, file) => `group-cover-${req.params.id}`,
+    overwrite: true,
   },
 });
 
-export { cloudinary, postStorage, avatarStorage, resumeStorage, groupCoverStorage }; // 👈 Export new storage
+// **👇 ADD THIS NEW STORAGE CONFIGURATION FOR USER COVER PHOTOS 👇**
+const coverPhotoStorage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: 'StageScout/covers',
+    allowed_formats: ['jpg', 'png', 'jpeg'],
+    public_id: (req, file) => `cover-${req.user._id}`,
+    overwrite: true,
+  },
+});
+
+
+export { 
+    cloudinary, 
+    postStorage, 
+    avatarStorage, 
+    resumeStorage, 
+    groupCoverStorage,
+    coverPhotoStorage // 👈 Export the new storage
+};
