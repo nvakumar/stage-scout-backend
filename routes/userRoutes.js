@@ -5,16 +5,18 @@ import {
   followUser,    
   unfollowUser,
   updateUserProfile,
-  uploadUserAvatar,  // 👈 Import uploadUserAvatar
-  uploadUserResume   // 👈 Import uploadUserResume
+  uploadUserAvatar,
+  uploadUserResume,
+  uploadUserCoverPhoto // 👈 Import the new controller function
 } from '../controllers/userController.js';
 import { protect } from '../middleware/authMiddleware.js';
-import multer from 'multer'; // Import multer to use its middleware directly here
-import { avatarStorage, resumeStorage } from '../config/cloudinary.js'; // Import storage configs
+import multer from 'multer';
+import { avatarStorage, resumeStorage, coverPhotoStorage } from '../config/cloudinary.js'; // 👈 Import the new storage config
 
 // Set up multer instances for routes
 const uploadAvatarMiddleware = multer({ storage: avatarStorage });
 const uploadResumeMiddleware = multer({ storage: resumeStorage });
+const uploadCoverMiddleware = multer({ storage: coverPhotoStorage }); // 👈 Create multer instance for cover photos
 
 
 const router = express.Router();
@@ -36,10 +38,13 @@ router.route('/:id/follow').post(protect, followUser);
 router.route('/:id/follow').delete(protect, unfollowUser); 
 
 // Route to upload user avatar
-router.route('/upload/avatar').post(protect, uploadAvatarMiddleware.single('avatar'), uploadUserAvatar); // 👈 Add avatar upload route
+router.route('/upload/avatar').post(protect, uploadAvatarMiddleware.single('avatar'), uploadUserAvatar);
 
 // Route to upload user resume
-router.route('/upload/resume').post(protect, uploadResumeMiddleware.single('resume'), uploadUserResume); // 👈 Add resume upload route
+router.route('/upload/resume').post(protect, uploadResumeMiddleware.single('resume'), uploadUserResume);
+
+// **👇 ADD THIS NEW ROUTE FOR COVER PHOTOS 👇**
+router.route('/upload/cover').post(protect, uploadCoverMiddleware.single('cover'), uploadUserCoverPhoto);
 
 
 export default router;
