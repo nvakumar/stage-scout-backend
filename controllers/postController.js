@@ -11,13 +11,9 @@ const upload = multer({ storage: postStorage });
 // @route   POST /api/posts/upload
 // @access  Private
 const uploadPostMedia = (req, res) => {
-  // This function runs after the 'upload.single('file')' middleware.
-  // The middleware handles the upload to Cloudinary.
   if (!req.file) {
     return res.status(400).json({ message: 'No file uploaded.' });
   }
-
-  // If upload is successful, Cloudinary provides the path (URL) and mimetype.
   res.status(201).json({
     message: 'File uploaded successfully.',
     mediaUrl: req.file.path,
@@ -30,7 +26,7 @@ const uploadPostMedia = (req, res) => {
 // @route   POST /api/posts
 // @access  Private
 const createPost = async (req, res) => {
-  const { title, description, groupId, mediaUrl, mediaType } = req.body;
+  const { title, description, groupId } = req.body;
 
   if (!title) {
     return res.status(400).json({ message: 'Title content is required.' });
@@ -44,6 +40,15 @@ const createPost = async (req, res) => {
       }
     }
 
+    let mediaUrl = null;
+    let mediaType = null;
+
+    if (req.file) {
+      // multer-storage-cloudinary puts Cloudinary URL in req.file.path
+      mediaUrl = req.file.path;
+      mediaType = req.file.mimetype.startsWith('video') ? 'Video' : 'Photo';
+    }
+
     const newPostData = {
       user: req.user._id,
       title,
@@ -55,8 +60,9 @@ const createPost = async (req, res) => {
 
     const newPost = new Post(newPostData);
     const createdPost = await newPost.save();
-    const populatedPost = await Post.findById(createdPost._id).populate('user', 'fullName role avatar profilePictureUrl');
-    
+    const populatedPost = await Post.findById(createdPost._id)
+      .populate('user', 'fullName role avatar profilePictureUrl');
+
     res.status(201).json(populatedPost);
   } catch (error) {
     console.error("Error creating post:", error);
@@ -72,8 +78,19 @@ const getPosts = async (req, res) => {
     const posts = await Post.find({ group: { $exists: false } })
       .sort({ createdAt: -1 })
       .populate('user', 'fullName role avatar profilePictureUrl')
-      .populate('comments.user', 'fullName avatar profilePictureUrl');
-    res.status(200).json(posts);
+      .populate('comments.user', 'fullName avatar profilePictureUrl')
+      .lean(); // Use .lean() to get plain JavaScript objects for easier manipulation
+
+    // 👇 THIS IS THE FIX 👇
+    // Manually map the response to ensure the mediaUrl and mediaType fields are always present,
+    // even if they are null or undefined in the database.
+    const formattedPosts = posts.map(post => ({
+      ...post,
+      mediaUrl: post.mediaUrl || null,
+      mediaType: post.mediaType || null,
+    }));
+
+    res.status(200).json(formattedPosts);
   } catch (error) {
     console.error("Error fetching posts:", error);
     res.status(500).json({ message: 'Server Error', error: error.message });
@@ -95,8 +112,16 @@ const getGroupPosts = async (req, res) => {
         const posts = await Post.find({ group: req.params.id })
             .sort({ createdAt: -1 })
             .populate('user', 'fullName role avatar profilePictureUrl')
-            .populate('comments.user', 'fullName avatar profilePictureUrl');
-        res.status(200).json(posts);
+            .populate('comments.user', 'fullName avatar profilePictureUrl')
+            .lean(); // Also use lean here for consistency
+
+        const formattedPosts = posts.map(post => ({
+            ...post,
+            mediaUrl: post.mediaUrl || null,
+            mediaType: post.mediaType || null,
+        }));
+
+        res.status(200).json(formattedPosts);
     } catch (error) {
         console.error("Error fetching group posts:", error);
         res.status(500).json({ message: 'Server Error', error: error.message });
